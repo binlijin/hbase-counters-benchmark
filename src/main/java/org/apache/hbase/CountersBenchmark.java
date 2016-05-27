@@ -33,43 +33,110 @@ package org.apache.hbase;
 
 import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hadoop.hbase.util.Counter;
+import org.apache.hadoop.metrics2.lib.MutableHistogram;
 import org.apache.hadoop.metrics2.lib.MutableTimeHistogram;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
+
+import com.lmax.disruptor.EventFactory;
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.dsl.Disruptor;
 
 @State(Scope.Benchmark)
 public class CountersBenchmark {
 
   private AtomicLong atomicLong = new AtomicLong();
   private Counter counter = new Counter();
-  private MutableTimeHistogram histogram = new MutableTimeHistogram("foo", "bar");
+
+  // HBase's metric histograms
+  private MutableTimeHistogram timeHistogram = new MutableTimeHistogram("foo", "bar");
+  private MutableHistogram histogram = new MutableHistogram("baz", "baa");
+
   private Random random = new Random();
 
   private final ArrayBlockingQueue<Long> q = new ArrayBlockingQueue<Long>(5000);
 
-  @Benchmark
+  public static final class ValueEvent {
+      private long value;
+
+      public long getValue() {
+          return value;
+      }
+
+      public void setValue(final long value) {
+          this.value = value;
+      }
+
+      public final static EventFactory<ValueEvent> EVENT_FACTORY = new EventFactory<ValueEvent>() {
+          @Override
+          public ValueEvent newInstance(){
+              return new ValueEvent();
+          }
+      };
+  }
+
+  final EventHandler<ValueEvent> handler = new EventHandler<ValueEvent>() {
+      @Override
+      public void onEvent(final ValueEvent event, final long sequence, final boolean endOfBatch)
+          throws Exception {
+          histogram.add(event.value);
+      }
+  };
+
+  private Disruptor<ValueEvent> disruptor;
+  private RingBuffer<ValueEvent> ringBuffer;
+  private ExecutorService executor;
+
+  public CountersBenchmark() {
+  }
+
+  @Setup
+  public void setup() {
+    executor = Executors.newSingleThreadExecutor();
+    disruptor =
+        new Disruptor<ValueEvent>(ValueEvent.EVENT_FACTORY, 4096, executor);
+    disruptor.handleEventsWith(handler);
+    ringBuffer = disruptor.start();
+  }
+
+  @TearDown
+  public void tearDown() {
+    executor.shutdown();
+    disruptor.shutdown();
+  }
+
+  //@Benchmark
   public long testIncrementAtomicLong() {
     return atomicLong.incrementAndGet();
   }
 
-  @Benchmark
+  //@Benchmark
   public void testIncrementCounter() {
     counter.increment();
   }
 
-  @Benchmark
+  //@Benchmark
   public void testAddHistogramConstantValue() {
     histogram.add(1);
   }
 
   @Benchmark
-  public void testAddHistogramRandomValue() {
-    histogram.add(random.nextInt(1000));
+  public void testAddToDisruptor() {
+    long seq = ringBuffer.next();
+    ValueEvent valueEvent = ringBuffer.get(seq);
+    valueEvent.setValue(random.nextInt(1000));
+    ringBuffer.publish(seq);
   }
+
 
   @Benchmark
   public void testAddToBlockingQueue() {
@@ -77,5 +144,20 @@ public class CountersBenchmark {
     if (q.size() == 4000) {
       q.clear();
     }
+  }
+
+  @Benchmark
+  public void testAddHistogramRandomValue() {
+    histogram.add(random.nextInt(1000));
+  }
+
+  //@Benchmark
+  public void testAddTimeHistogramConstantValue() {
+    timeHistogram.add(1);
+  }
+
+  //@Benchmark
+  public void testAddTimeHistogramRandomValue() {
+    timeHistogram.add(random.nextInt(1000));
   }
 }
