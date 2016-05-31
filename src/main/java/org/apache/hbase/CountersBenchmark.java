@@ -48,6 +48,7 @@ import org.openjdk.jmh.annotations.TearDown;
 
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.InsufficientCapacityException;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 
@@ -131,17 +132,25 @@ public class CountersBenchmark {
 
   @Benchmark
   public void testAddToDisruptor() {
-    long seq = ringBuffer.next();
-    ValueEvent valueEvent = ringBuffer.get(seq);
-    valueEvent.setValue(random.nextInt(1000));
-    ringBuffer.publish(seq);
+    long seq = -1;
+    try {
+      seq = ringBuffer.tryNext();
+      ValueEvent valueEvent = ringBuffer.get(seq);
+      valueEvent.setValue(random.nextInt(1000));
+    } catch (InsufficientCapacityException e) {
+      // just ignore
+    } finally {
+      if (seq >= 0) {
+        ringBuffer.publish(seq);
+      }
+    }
   }
 
 
   @Benchmark
   public void testAddToBlockingQueue() {
-    q.offer(new Long(1L));
-    if (q.size() == 4000) {
+    q.offer(new Long(random.nextInt(1000)));
+    if (q.size() >= 4000) {
       q.clear();
     }
   }
