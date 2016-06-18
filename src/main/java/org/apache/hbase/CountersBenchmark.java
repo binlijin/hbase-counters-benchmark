@@ -36,6 +36,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.apache.hadoop.hbase.util.Counter;
 import org.apache.hadoop.metrics2.lib.MutableHistogram;
@@ -56,6 +57,7 @@ import com.lmax.disruptor.dsl.Disruptor;
 public class CountersBenchmark {
 
   private AtomicLong atomicLong = new AtomicLong();
+  private LongAdder longAdder = new LongAdder();
   private Counter counter = new Counter();
 
   // HBase's metric histograms
@@ -115,12 +117,17 @@ public class CountersBenchmark {
     disruptor.shutdown();
   }
 
-  //@Benchmark
+  @Benchmark
   public long testIncrementAtomicLong() {
     return atomicLong.incrementAndGet();
   }
 
-  //@Benchmark
+  @Benchmark
+  public void testIncrementLongAdder() {
+    longAdder.increment();
+  }
+
+  @Benchmark
   public void testIncrementCounter() {
     counter.increment();
   }
@@ -130,7 +137,7 @@ public class CountersBenchmark {
     histogram.add(1);
   }
 
-  @Benchmark
+  //@Benchmark
   public void testAddToDisruptor() {
     long seq = -1;
     try {
@@ -147,7 +154,7 @@ public class CountersBenchmark {
   }
 
 
-  @Benchmark
+  //@Benchmark
   public void testAddToBlockingQueue() {
     q.offer(new Long(random.nextInt(1000)));
     if (q.size() >= 4000) {
@@ -155,7 +162,7 @@ public class CountersBenchmark {
     }
   }
 
-  @Benchmark
+  //@Benchmark
   public void testAddHistogramRandomValue() {
     histogram.add(random.nextInt(1000));
   }
